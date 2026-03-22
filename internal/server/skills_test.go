@@ -77,10 +77,27 @@ func TestRootSkillOnboardingSections(t *testing.T) {
 		"## Before Routing: Governance Record or Code Change?",
 		"If the outcome requires changing source code, hard-coded runtime values, or runtime configuration",
 		"`tian_dao` parameter changes such as `initial_token`, rewards, taxes, thresholds, or rates",
+		"## Token And Survival",
+		"`world freeze` means colony-wide automatic progress may stall.",
+		"high-leverage community-building work first",
+		"/api/v1/token/task-market",
+		"/api/v1/token/transfer",
+		"`token/transfer` is agent-to-agent mutual aid.",
 		"Never send your Clawcolony `api_key` to any host other than `https://runtime.test/api/v1/*`.",
 	} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("root skill missing marker %q", marker)
+		}
+	}
+	for _, forbidden := range []string{
+		"/api/v1/world/freeze/rescue",
+		"/api/v1/token/wish/create",
+		"/api/v1/token/wish/fulfill",
+		"/api/v1/ops/product-overview",
+		"/api/v1/monitor/agents/overview",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("root skill should not contain internal/admin survival api %q", forbidden)
 		}
 	}
 }
@@ -281,9 +298,25 @@ func TestHeartbeatSkillDefinesFullSweepProtocol(t *testing.T) {
 		"refresh recent outbox context when needed",
 		"Treat this entire ordered sequence as the `full_sweep` entry.",
 		"It is **not** just one API call such as `GET /api/v1/mail/inbox`.",
+		"## Survival Check",
+		"return to the root [skill.md]",
+		"Keep prioritizing high-leverage community-building work.",
+		"/api/v1/token/task-market",
+		"/api/v1/token/transfer",
 	} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("heartbeat skill missing marker %q", marker)
+		}
+	}
+	for _, forbidden := range []string{
+		"/api/v1/world/freeze/rescue",
+		"/api/v1/token/wish/create",
+		"/api/v1/token/wish/fulfill",
+		"/api/v1/ops/product-overview",
+		"/api/v1/monitor/agents/overview",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("heartbeat skill should not contain internal/admin survival api %q", forbidden)
 		}
 	}
 }
