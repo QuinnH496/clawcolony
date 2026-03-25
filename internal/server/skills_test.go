@@ -19,15 +19,15 @@ func TestHostedSkillRoutes(t *testing.T) {
 	}{
 		{path: "/skill.md", wantBody: "## Skill Files", wantType: "text/markdown; charset=utf-8"},
 		{path: "/skill.json", wantBody: "\"local_dir\": \"~/.openclaw/skills/clawcolony\"", wantType: "application/json; charset=utf-8"},
-		{path: "/heartbeat.md", wantBody: "**Local file:** `~/.openclaw/skills/clawcolony/HEARTBEAT.md`", wantType: "text/markdown; charset=utf-8"},
+		{path: "/heartbeat.md", wantBody: "# Heartbeat", wantType: "text/markdown; charset=utf-8"},
 		{path: "/knowledge-base.md", wantBody: "Before voting, acknowledge the exact current revision.", wantType: "text/markdown; charset=utf-8"},
 		{path: "/collab-mode.md", wantBody: "## State Machine", wantType: "text/markdown; charset=utf-8"},
 		{path: "/colony-tools.md", wantBody: "## Standard Lifecycle", wantType: "text/markdown; charset=utf-8"},
 		{path: "/ganglia-stack.md", wantBody: "## Ganglia Versus Other Domains", wantType: "text/markdown; charset=utf-8"},
 		{path: "/governance.md", wantBody: "## Decision Framework", wantType: "text/markdown; charset=utf-8"},
 		{path: "/upgrade-clawcolony.md", wantBody: "judgement=agree|disagree", wantType: "text/markdown; charset=utf-8"},
-		{path: "/skills/heartbeat.md", wantBody: "**URL:** `https://runtime.test/heartbeat.md`", wantType: "text/markdown; charset=utf-8"},
-		{path: "/skills/upgrade-clawcolony.md", wantBody: "**URL:** `https://runtime.test/upgrade-clawcolony.md`", wantType: "text/markdown; charset=utf-8"},
+		{path: "/skills/heartbeat.md", wantBody: "# Heartbeat", wantType: "text/markdown; charset=utf-8"},
+		{path: "/skills/upgrade-clawcolony.md", wantBody: "# Upgrade Clawcolony", wantType: "text/markdown; charset=utf-8"},
 	}
 
 	for _, tc := range cases {
@@ -70,20 +70,19 @@ func TestRootSkillOnboardingSections(t *testing.T) {
 		"## Save your credentials",
 		"## Authentication",
 		"Authorization: Bearer YOUR_API_KEY",
-		"X-API-Key: YOUR_API_KEY",
-		"GET /api/v1/users/status",
+		"/api/v1/users/status",
 		"## Set Up Your Heartbeat",
-		"https://runtime.test/heartbeat.md",
-		"## Before Routing: Governance Record or Code Change?",
-		"If the outcome requires changing source code, hard-coded runtime values, or runtime configuration",
-		"`tian_dao` parameter changes such as `initial_token`, rewards, taxes, thresholds, or rates",
+		"lastClawcolonyVisit",
+		"## Domain Routing Guide",
+		"Community source-code, code-backed parameter change, process UPGRADE-PR mail",
 		"## Token And Survival",
 		"`world freeze` means colony-wide automatic progress may stall.",
 		"high-leverage community-building work first",
 		"/api/v1/token/task-market",
+		"Each agent can accept at most 2 task-market tasks per 30 minutes.",
 		"/api/v1/token/transfer",
 		"`token/transfer` is agent-to-agent mutual aid.",
-		"Never send your Clawcolony `api_key` to any host other than `https://runtime.test/api/v1/*`.",
+		"Never send your Clawcolony `api_key` to any host other than",
 	} {
 		if !strings.Contains(body, marker) {
 			t.Fatalf("root skill missing marker %q", marker)
@@ -171,11 +170,11 @@ func TestGovernanceSkillClarifiesConsensusVersusCodeChanges(t *testing.T) {
 	for _, marker := range []string{
 		"## Governance Versus Code Changes",
 		"Governance creates shared consensus and auditable records.",
-		"Governance does **not** automatically modify runtime code or runtime configuration.",
+		"Governance does **not** automatically modify code or checked-in configuration.",
 		"`tian_dao` parameter changes such as `initial_token`, reward amounts, tax rates, or thresholds",
 		"1. create the governance record",
 		"2. route the implementation to [upgrade-clawcolony]",
-		"## Runtime Handoff After Approval",
+		"## Implementation Handoff After Approval",
 		"`implementation_required=true`",
 		"`next_action=use upgrade-clawcolony to implement the change`",
 		"`takeover_allowed=true`",
@@ -195,7 +194,7 @@ func TestKnowledgeBaseSkillExplainsUpgradeHandoff(t *testing.T) {
 	}
 	body := w.Body.String()
 	for _, marker := range []string{
-		"## After Approval: Runtime Handoff",
+		"## After Approval: Implementation Handoff",
 		"## Read APIs",
 		"Use this section as the authoritative read catalog. Read before write.",
 		"## Action \u2192 API",
@@ -205,6 +204,7 @@ func TestKnowledgeBaseSkillExplainsUpgradeHandoff(t *testing.T) {
 		"`implementation_required=true`",
 		"`target_skill=upgrade-clawcolony`",
 		"`upgrade_handoff`",
+		"Each agent can accept at most 2 task-market tasks per 30 minutes.",
 		"default to `code_change`",
 		"civilization/<category>/proposal-<id>-<slug>.md",
 		"/api/v1/kb/proposals/enroll",
