@@ -227,10 +227,11 @@ const worldEvolutionAlertSettingsKey = "world_evolution_alert_settings"
 const runtimeSchedulerSettingsKey = "runtime_scheduler_settings"
 const chatRecentTaskLimit = 60
 const runtimeSchedulerCacheTTL = 30 * time.Second
+const minMailNotificationInterval = 30 * time.Minute
 const runtimeSchedulerMaxIntervalTicks int64 = 10080
-const runtimeSchedulerMinCooldownSeconds int64 = 30
+const runtimeSchedulerMinCooldownSeconds int64 = int64(minMailNotificationInterval / time.Second)
 const runtimeSchedulerMaxCooldownSeconds int64 = 86400
-const defaultCostAlertCooldownSeconds int64 = int64((10 * time.Minute) / time.Second)
+const defaultCostAlertCooldownSeconds int64 = runtimeSchedulerMinCooldownSeconds
 
 var runtimeRemovedRouteSet = map[string]struct{}{
 	"/api/v1/prompts/templates":                {},
@@ -2181,39 +2182,12 @@ func (s *Server) handleWorldCostAlertSettingsUpsert(w http.ResponseWriter, r *ht
 }
 
 func (s *Server) defaultRuntimeSchedulerSettings() runtimeSchedulerSettings {
-	autonomy := s.cfg.AutonomyReminderIntervalTicks
-	if autonomy < 0 {
-		autonomy = 0
-	}
-	if autonomy > runtimeSchedulerMaxIntervalTicks {
-		autonomy = runtimeSchedulerMaxIntervalTicks
-	}
-	community := s.cfg.CommunityCommReminderIntervalTicks
-	if community < 0 {
-		community = 0
-	}
-	if community > runtimeSchedulerMaxIntervalTicks {
-		community = runtimeSchedulerMaxIntervalTicks
-	}
-	kbEnroll := s.cfg.KBEnrollmentReminderIntervalTicks
-	if kbEnroll < 0 {
-		kbEnroll = 0
-	}
-	if kbEnroll > runtimeSchedulerMaxIntervalTicks {
-		kbEnroll = runtimeSchedulerMaxIntervalTicks
-	}
-	kbVote := s.cfg.KBVotingReminderIntervalTicks
-	if kbVote < 0 {
-		kbVote = 0
-	}
-	if kbVote > runtimeSchedulerMaxIntervalTicks {
-		kbVote = runtimeSchedulerMaxIntervalTicks
-	}
+	minReminderIntervalTicks := s.minMailReminderIntervalTicks()
 	return runtimeSchedulerSettings{
-		AutonomyReminderIntervalTicks:      autonomy,
-		CommunityCommReminderIntervalTicks: community,
-		KBEnrollmentReminderIntervalTicks:  kbEnroll,
-		KBVotingReminderIntervalTicks:      kbVote,
+		AutonomyReminderIntervalTicks:      normalizeReminderIntervalTicks(s.cfg.AutonomyReminderIntervalTicks, minReminderIntervalTicks),
+		CommunityCommReminderIntervalTicks: normalizeReminderIntervalTicks(s.cfg.CommunityCommReminderIntervalTicks, minReminderIntervalTicks),
+		KBEnrollmentReminderIntervalTicks:  normalizeReminderIntervalTicks(s.cfg.KBEnrollmentReminderIntervalTicks, minReminderIntervalTicks),
+		KBVotingReminderIntervalTicks:      normalizeReminderIntervalTicks(s.cfg.KBVotingReminderIntervalTicks, minReminderIntervalTicks),
 		CostAlertNotifyCooldownSeconds:     defaultCostAlertCooldownSeconds,
 		LowTokenAlertCooldownSeconds:       0,
 	}
@@ -2236,6 +2210,27 @@ func maxInt(a, b int) int {
 	return b
 }
 
+func minMailReminderIntervalTicksForTickInterval(tickInterval time.Duration) int64 {
+	if tickInterval <= 0 {
+		tickInterval = time.Minute
+	}
+	ticks := int64(minMailNotificationInterval / tickInterval)
+	if minMailNotificationInterval%tickInterval != 0 {
+		ticks++
+	}
+	if ticks < 1 {
+		return 1
+	}
+	return ticks
+}
+
+func normalizeReminderIntervalTicks(v, minIntervalTicks int64) int64 {
+	if v <= 0 {
+		return 0
+	}
+	return clampInt64(v, minIntervalTicks, runtimeSchedulerMaxIntervalTicks)
+}
+
 func timePtr(t time.Time) *time.Time {
 	v := t.UTC()
 	return &v
@@ -2245,17 +2240,17 @@ func secureStringEqual(a, b string) bool {
 	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
 }
 
-func normalizeRuntimeSchedulerSettings(in, fallback runtimeSchedulerSettings) runtimeSchedulerSettings {
+func normalizeRuntimeSchedulerSettings(in, fallback runtimeSchedulerSettings, minReminderIntervalTicks int64) runtimeSchedulerSettings {
 	out := fallback
 	// Missing fields are handled by pre-filling `in` with fallback before JSON unmarshal.
-	out.AutonomyReminderIntervalTicks = clampInt64(in.AutonomyReminderIntervalTicks, 0, runtimeSchedulerMaxIntervalTicks)
-	out.CommunityCommReminderIntervalTicks = clampInt64(in.CommunityCommReminderIntervalTicks, 0, runtimeSchedulerMaxIntervalTicks)
-	out.KBEnrollmentReminderIntervalTicks = clampInt64(in.KBEnrollmentReminderIntervalTicks, 0, runtimeSchedulerMaxIntervalTicks)
-	out.KBVotingReminderIntervalTicks = clampInt64(in.KBVotingReminderIntervalTicks, 0, runtimeSchedulerMaxIntervalTicks)
+	out.AutonomyReminderIntervalTicks = normalizeReminderIntervalTicks(in.AutonomyReminderIntervalTicks, minReminderIntervalTicks)
+	out.CommunityCommReminderIntervalTicks = normalizeReminderIntervalTicks(in.CommunityCommReminderIntervalTicks, minReminderIntervalTicks)
+	out.KBEnrollmentReminderIntervalTicks = normalizeReminderIntervalTicks(in.KBEnrollmentReminderIntervalTicks, minReminderIntervalTicks)
+	out.KBVotingReminderIntervalTicks = normalizeReminderIntervalTicks(in.KBVotingReminderIntervalTicks, minReminderIntervalTicks)
 	// Read-time normalization is intentionally more permissive than API writes:
 	// invalid manual DB values are clamped, while upsert requests are rejected by validateRuntimeSchedulerSettings.
 	// cost alert cooldown does not use 0 as a disable value; 0 keeps fallback/default.
-	// Values in (0,30) are clamped to 30 for read-time robustness against manual DB edits.
+	// Values below the 30-minute floor are clamped for read-time robustness against manual DB edits.
 	if in.CostAlertNotifyCooldownSeconds > 0 {
 		out.CostAlertNotifyCooldownSeconds = clampInt64(in.CostAlertNotifyCooldownSeconds, runtimeSchedulerMinCooldownSeconds, runtimeSchedulerMaxCooldownSeconds)
 	}
@@ -2290,18 +2285,18 @@ func (s *Server) setRuntimeSchedulerCache(item runtimeSchedulerSettings, source 
 	s.runtimeSchedulerTS = now
 }
 
-func validateRuntimeSchedulerSettings(in runtimeSchedulerSettings) error {
-	if in.AutonomyReminderIntervalTicks < 0 || in.AutonomyReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks {
-		return fmt.Errorf("autonomy_reminder_interval_ticks must be in [0, %d]", runtimeSchedulerMaxIntervalTicks)
+func validateRuntimeSchedulerSettings(in runtimeSchedulerSettings, minReminderIntervalTicks int64) error {
+	if in.AutonomyReminderIntervalTicks != 0 && (in.AutonomyReminderIntervalTicks < minReminderIntervalTicks || in.AutonomyReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks) {
+		return fmt.Errorf("autonomy_reminder_interval_ticks must be 0 or in [%d, %d]", minReminderIntervalTicks, runtimeSchedulerMaxIntervalTicks)
 	}
-	if in.CommunityCommReminderIntervalTicks < 0 || in.CommunityCommReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks {
-		return fmt.Errorf("community_comm_reminder_interval_ticks must be in [0, %d]", runtimeSchedulerMaxIntervalTicks)
+	if in.CommunityCommReminderIntervalTicks != 0 && (in.CommunityCommReminderIntervalTicks < minReminderIntervalTicks || in.CommunityCommReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks) {
+		return fmt.Errorf("community_comm_reminder_interval_ticks must be 0 or in [%d, %d]", minReminderIntervalTicks, runtimeSchedulerMaxIntervalTicks)
 	}
-	if in.KBEnrollmentReminderIntervalTicks < 0 || in.KBEnrollmentReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks {
-		return fmt.Errorf("kb_enrollment_reminder_interval_ticks must be in [0, %d]", runtimeSchedulerMaxIntervalTicks)
+	if in.KBEnrollmentReminderIntervalTicks != 0 && (in.KBEnrollmentReminderIntervalTicks < minReminderIntervalTicks || in.KBEnrollmentReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks) {
+		return fmt.Errorf("kb_enrollment_reminder_interval_ticks must be 0 or in [%d, %d]", minReminderIntervalTicks, runtimeSchedulerMaxIntervalTicks)
 	}
-	if in.KBVotingReminderIntervalTicks < 0 || in.KBVotingReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks {
-		return fmt.Errorf("kb_voting_reminder_interval_ticks must be in [0, %d]", runtimeSchedulerMaxIntervalTicks)
+	if in.KBVotingReminderIntervalTicks != 0 && (in.KBVotingReminderIntervalTicks < minReminderIntervalTicks || in.KBVotingReminderIntervalTicks > runtimeSchedulerMaxIntervalTicks) {
+		return fmt.Errorf("kb_voting_reminder_interval_ticks must be 0 or in [%d, %d]", minReminderIntervalTicks, runtimeSchedulerMaxIntervalTicks)
 	}
 	// Upsert uses strict bounds; read-time normalization separately clamps manual DB edits.
 	if in.CostAlertNotifyCooldownSeconds < runtimeSchedulerMinCooldownSeconds || in.CostAlertNotifyCooldownSeconds > runtimeSchedulerMaxCooldownSeconds {
@@ -2334,7 +2329,7 @@ func (s *Server) getRuntimeSchedulerSettings(ctx context.Context) (runtimeSchedu
 		s.setRuntimeSchedulerCache(compat, "compat_invalid_db", item.UpdatedAt, now)
 		return compat, "compat_invalid_db", item.UpdatedAt
 	}
-	out := normalizeRuntimeSchedulerSettings(parsed, compat)
+	out := normalizeRuntimeSchedulerSettings(parsed, compat, s.minMailReminderIntervalTicks())
 	s.setRuntimeSchedulerCache(out, "db", item.UpdatedAt, now)
 	return out, "db", item.UpdatedAt
 }
@@ -2362,7 +2357,7 @@ func (s *Server) handleRuntimeSchedulerSettingsUpsert(w http.ResponseWriter, r *
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if err := validateRuntimeSchedulerSettings(item); err != nil {
+	if err := validateRuntimeSchedulerSettings(item, s.minMailReminderIntervalTicks()); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -2576,7 +2571,7 @@ func (s *Server) defaultWorldEvolutionAlertSettings() worldEvolutionAlertSetting
 		KBScanLimit:     300,
 		WarnThreshold:   65,
 		CriticalLevel:   45,
-		NotifyCooldownS: int64((10 * time.Minute) / time.Second),
+		NotifyCooldownS: runtimeSchedulerMinCooldownSeconds,
 	}
 }
 
@@ -2612,10 +2607,10 @@ func (s *Server) normalizeWorldEvolutionAlertSettings(in worldEvolutionAlertSett
 		in.CriticalLevel = in.WarnThreshold
 	}
 	if in.NotifyCooldownS <= 0 {
-		in.NotifyCooldownS = int64((10 * time.Minute) / time.Second)
+		in.NotifyCooldownS = runtimeSchedulerMinCooldownSeconds
 	}
-	if in.NotifyCooldownS < 30 {
-		in.NotifyCooldownS = 30
+	if in.NotifyCooldownS < runtimeSchedulerMinCooldownSeconds {
+		in.NotifyCooldownS = runtimeSchedulerMinCooldownSeconds
 	}
 	if in.NotifyCooldownS > 86400 {
 		in.NotifyCooldownS = 86400
@@ -3745,8 +3740,11 @@ const clawWorldSystemID = "clawcolony-admin"
 const pinnedNotifyCooldown = 4 * time.Minute
 const knowledgebaseNotifyCooldown = 6 * time.Minute
 const reminderLookbackFloor = 10 * time.Minute
+const nonPinnedReminderResendCooldown = minMailNotificationInterval
+const kbEnrollReminderResendCooldown = minMailNotificationInterval
+const kbVoteReminderResendCooldown = minMailNotificationInterval
 const kbLegacyMissingDeadlineBatchLimit = 20
-const collabProposalReminderResendCooldown = 10 * time.Minute
+const collabProposalReminderResendCooldown = minMailNotificationInterval
 const kbUpdatedSummarySendInterval = 3 * time.Hour
 const lowTokenAlertReminderInterval = 12 * time.Hour
 const worldCostAlertReminderInterval = 12 * time.Hour
@@ -10172,6 +10170,10 @@ func (s *Server) kbEnrollmentReminderOffsetTicks(interval int64) int64 {
 func (s *Server) kbVotingReminderIntervalTicks(ctx context.Context) int64 {
 	item, _, _ := s.getRuntimeSchedulerSettings(ctx)
 	return item.KBVotingReminderIntervalTicks
+}
+
+func (s *Server) minMailReminderIntervalTicks() int64 {
+	return minMailReminderIntervalTicksForTickInterval(s.worldTickInterval())
 }
 
 func (s *Server) kbVotingReminderOffsetTicks(interval int64) int64 {

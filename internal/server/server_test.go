@@ -440,8 +440,8 @@ func TestRuntimeSchedulerSettingsCompatPathIsCached(t *testing.T) {
 	if !updatedAt.IsZero() {
 		t.Fatalf("compat updated_at should be zero, got=%s", updatedAt)
 	}
-	if item.CostAlertNotifyCooldownSeconds != 600 {
-		t.Fatalf("default cost cooldown = %d, want 600", item.CostAlertNotifyCooldownSeconds)
+	if item.CostAlertNotifyCooldownSeconds != 1800 {
+		t.Fatalf("default cost cooldown = %d, want 1800", item.CostAlertNotifyCooldownSeconds)
 	}
 	if item.LowTokenAlertCooldownSeconds != 0 {
 		t.Fatalf("default low-token cooldown = %d, want 0", item.LowTokenAlertCooldownSeconds)
@@ -453,8 +453,8 @@ func TestRuntimeSchedulerSettingsCompatPathIsCached(t *testing.T) {
 	if cacheSource != "compat" {
 		t.Fatalf("cache source = %q, want compat", cacheSource)
 	}
-	if cached.CostAlertNotifyCooldownSeconds != 600 {
-		t.Fatalf("cached cost cooldown = %d, want 600", cached.CostAlertNotifyCooldownSeconds)
+	if cached.CostAlertNotifyCooldownSeconds != 1800 {
+		t.Fatalf("cached cost cooldown = %d, want 1800", cached.CostAlertNotifyCooldownSeconds)
 	}
 }
 
@@ -471,7 +471,7 @@ func TestRuntimeSchedulerSettingsEndpoints(t *testing.T) {
 		!bytes.Contains(body, []byte(`"community_comm_reminder_interval_ticks":0`)) ||
 		!bytes.Contains(body, []byte(`"kb_enrollment_reminder_interval_ticks":0`)) ||
 		!bytes.Contains(body, []byte(`"kb_voting_reminder_interval_ticks":0`)) ||
-		!bytes.Contains(body, []byte(`"cost_alert_notify_cooldown_seconds":600`)) ||
+		!bytes.Contains(body, []byte(`"cost_alert_notify_cooldown_seconds":1800`)) ||
 		!bytes.Contains(body, []byte(`"low_token_alert_cooldown_seconds":0`)) {
 		t.Fatalf("unexpected runtime scheduler defaults: %s", w.Body.String())
 	}
@@ -482,7 +482,7 @@ func TestRuntimeSchedulerSettingsEndpoints(t *testing.T) {
 		"kb_enrollment_reminder_interval_ticks":  360,
 		"kb_voting_reminder_interval_ticks":      120,
 		"cost_alert_notify_cooldown_seconds":     7200,
-		"low_token_alert_cooldown_seconds":       900,
+		"low_token_alert_cooldown_seconds":       1800,
 	})
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("upsert runtime scheduler settings status=%d body=%s", w.Code, w.Body.String())
@@ -499,19 +499,19 @@ func TestRuntimeSchedulerSettingsEndpoints(t *testing.T) {
 		!bytes.Contains(body, []byte(`"kb_enrollment_reminder_interval_ticks":360`)) ||
 		!bytes.Contains(body, []byte(`"kb_voting_reminder_interval_ticks":120`)) ||
 		!bytes.Contains(body, []byte(`"cost_alert_notify_cooldown_seconds":7200`)) ||
-		!bytes.Contains(body, []byte(`"low_token_alert_cooldown_seconds":900`)) {
+		!bytes.Contains(body, []byte(`"low_token_alert_cooldown_seconds":1800`)) {
 		t.Fatalf("expected persisted runtime scheduler settings: %s", w.Body.String())
 	}
 }
 
 func TestRuntimeSchedulerSettingsPartialDBPayloadFallsBackMissingFields(t *testing.T) {
 	srv := newTestServer()
-	srv.cfg.AutonomyReminderIntervalTicks = 240
+	srv.cfg.AutonomyReminderIntervalTicks = 5
 	ctx := context.Background()
 	if _, err := srv.store.UpsertWorldSetting(ctx, store.WorldSetting{
 		Key: runtimeSchedulerSettingsKey,
 		Value: `{
-			"community_comm_reminder_interval_ticks": 480,
+			"community_comm_reminder_interval_ticks": 5,
 			"low_token_alert_cooldown_seconds": 15
 		}`,
 	}); err != nil {
@@ -526,35 +526,60 @@ func TestRuntimeSchedulerSettingsPartialDBPayloadFallsBackMissingFields(t *testi
 	if source != "db" {
 		t.Fatalf("runtime scheduler source = %q, want db", source)
 	}
-	if item.AutonomyReminderIntervalTicks != 240 {
-		t.Fatalf("autonomy interval fallback = %d, want 240", item.AutonomyReminderIntervalTicks)
+	if item.AutonomyReminderIntervalTicks != 30 {
+		t.Fatalf("autonomy interval fallback clamp = %d, want 30", item.AutonomyReminderIntervalTicks)
 	}
-	if item.CommunityCommReminderIntervalTicks != 480 {
-		t.Fatalf("community interval = %d, want 480", item.CommunityCommReminderIntervalTicks)
+	if item.CommunityCommReminderIntervalTicks != 30 {
+		t.Fatalf("community interval clamp = %d, want 30", item.CommunityCommReminderIntervalTicks)
 	}
-	if item.CostAlertNotifyCooldownSeconds != 600 {
-		t.Fatalf("cost cooldown fallback = %d, want 600", item.CostAlertNotifyCooldownSeconds)
+	if item.CostAlertNotifyCooldownSeconds != 1800 {
+		t.Fatalf("cost cooldown fallback = %d, want 1800", item.CostAlertNotifyCooldownSeconds)
 	}
-	if item.LowTokenAlertCooldownSeconds != 30 {
-		t.Fatalf("low-token cooldown clamp = %d, want 30", item.LowTokenAlertCooldownSeconds)
+	if item.LowTokenAlertCooldownSeconds != 1800 {
+		t.Fatalf("low-token cooldown clamp = %d, want 1800", item.LowTokenAlertCooldownSeconds)
 	}
 }
 
 func TestRuntimeSchedulerSettingsUpsertRejectsInvalidInput(t *testing.T) {
 	srv := newTestServer()
 	w := doJSONRequest(t, srv.mux, http.MethodPost, "/api/v1/runtime/scheduler-settings/upsert", map[string]any{
-		"autonomy_reminder_interval_ticks":       -1,
+		"autonomy_reminder_interval_ticks":       1,
 		"community_comm_reminder_interval_ticks": 480,
 		"kb_enrollment_reminder_interval_ticks":  360,
 		"kb_voting_reminder_interval_ticks":      120,
-		"cost_alert_notify_cooldown_seconds":     10,
-		"low_token_alert_cooldown_seconds":       10,
+		"cost_alert_notify_cooldown_seconds":     1799,
+		"low_token_alert_cooldown_seconds":       1799,
 	})
 	if w.Code != http.StatusBadRequest {
 		t.Fatalf("invalid runtime scheduler settings status=%d body=%s", w.Code, w.Body.String())
 	}
 	if !bytes.Contains(w.Body.Bytes(), []byte("autonomy_reminder_interval_ticks")) {
 		t.Fatalf("expected invalid field hint in error body: %s", w.Body.String())
+	}
+}
+
+func TestMailReminderFloorsAreThirtyMinutes(t *testing.T) {
+	srv := newTestServer()
+	if got := srv.minMailReminderIntervalTicks(); got != 30 {
+		t.Fatalf("min reminder ticks = %d, want 30", got)
+	}
+	if defaultCostAlertCooldownSeconds != 1800 {
+		t.Fatalf("default cost cooldown seconds = %d, want 1800", defaultCostAlertCooldownSeconds)
+	}
+	if nonPinnedReminderResendCooldown != 30*time.Minute {
+		t.Fatalf("non-pinned resend cooldown = %s, want 30m", nonPinnedReminderResendCooldown)
+	}
+	if kbEnrollReminderResendCooldown != 30*time.Minute {
+		t.Fatalf("kb enroll resend cooldown = %s, want 30m", kbEnrollReminderResendCooldown)
+	}
+	if kbVoteReminderResendCooldown != 30*time.Minute {
+		t.Fatalf("kb vote resend cooldown = %s, want 30m", kbVoteReminderResendCooldown)
+	}
+	if collabProposalReminderResendCooldown != 30*time.Minute {
+		t.Fatalf("collab proposal resend cooldown = %s, want 30m", collabProposalReminderResendCooldown)
+	}
+	if got := srv.normalizeWorldEvolutionAlertSettings(worldEvolutionAlertSettings{NotifyCooldownS: 10}).NotifyCooldownS; got != 1800 {
+		t.Fatalf("world evolution cooldown clamp = %d, want 1800", got)
 	}
 }
 
@@ -570,7 +595,7 @@ func TestLowTokenAlertCooldownFromRuntimeSchedulerSettings(t *testing.T) {
 		"community_comm_reminder_interval_ticks": 0,
 		"kb_enrollment_reminder_interval_ticks":  0,
 		"kb_voting_reminder_interval_ticks":      0,
-		"cost_alert_notify_cooldown_seconds":     600,
+		"cost_alert_notify_cooldown_seconds":     1800,
 		"low_token_alert_cooldown_seconds":       3600,
 	})
 	if w.Code != http.StatusAccepted {
